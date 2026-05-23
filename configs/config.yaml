@@ -1,0 +1,32 @@
+# 默认本地开发配置（与 config.example.yaml 相同）。
+# 启动 Anvil 后可直接运行 chain-backend；请勿把真实密钥写入仓库。
+server:
+  gin_mode: "debug"
+  http_addr: ":8080"
+  grpc_addr: ":9090"
+  # 上传接口返回的 download_url 前缀；与浏览器/网关访问地址一致即可，便于直接存库。
+  public_base_url: "http://127.0.0.1:8080"
+
+jwt:
+  secret: "local-dev-only-change-for-production"
+  expire_hours: 72
+
+users:
+  - username: "admin"
+    password: "admin123"
+  - username: "demo"
+    password: "demo123"
+
+eth:
+  chain_id: 31337
+  http_rpc: "http://127.0.0.1:8545"
+  ws_rpc: "ws://127.0.0.1:8545"
+  erc20_contract: ""
+
+listener:
+  worker_count: 3
+  channel_buffer: 32
+  reconnect_base_ms: 500
+
+files:
+  upload_dir: "./data/uploads"

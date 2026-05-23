@@ -1,0 +1,16 @@
+services:
+  web3-grpc-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: web3lite-grpc
+    restart: unless-stopped
+    environment:
+      TZ: "Asia/Shanghai"
+      MYSQL_ADMIN_DSN: "root:123456@tcp(host.docker.internal:3306)/?parseTime=true"
+      MYSQL_DSN: "root:123456@tcp(host.docker.internal:3306)/web3lite?parseTime=true"
+      RPC_URL: "${RPC_URL:-}"
+    ports:
+      - "50051:50051"
+    command: ["./web3-grpc-server", "-addr", ":50051", "-api-key", "web3-lite-key"]
+

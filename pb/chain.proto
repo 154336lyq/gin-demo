@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package chainpb;
+
+option go_package = "gin-demo/pb/chainpb;chainpb";
+
+// Empty 占位消息，演示 protobuf 基本类型。
+message Empty {}
+
+// BlockSummary 链上区块摘要（供 gRPC 查询示例）。
+message BlockSummary {
+  uint64 number = 1;
+  string hash = 2;
+  uint64 timestamp = 3;
+  uint32 tx_count = 4;
+}
+
+// ChainQuery 演示：HTTP(Gin) 与 gRPC 可并行对外暴露同一后端数据源。
+service ChainQuery {
+  rpc Ping(Empty) returns (Empty);
+  rpc GetLatestBlock(Empty) returns (BlockSummary);
+}

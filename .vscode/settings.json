@@ -1,0 +1,8 @@
+{
+  "go.goroot": "C:\\web3\\anzhang\\goPath\\pkg\\mod\\golang.org\\toolchain@v0.0.1-go1.25.0.windows-amd64",
+  "go.toolsEnvVars": {
+    "GOROOT": "C:\\web3\\anzhang\\goPath\\pkg\\mod\\golang.org\\toolchain@v0.0.1-go1.25.0.windows-amd64",
+    "GOTOOLCHAIN": "auto",
+    "GOSUMDB": "sum.golang.google.cn"
+  }
+}

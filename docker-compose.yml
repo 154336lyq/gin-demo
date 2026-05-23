@@ -1,0 +1,40 @@
+services:
+  mysql:
+    image: ${MYSQL_IMAGE:-docker.m.daocloud.io/library/mysql:8.4}
+    container_name: web3lite-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: "123456"
+      TZ: "Asia/Shanghai"
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./deploy/mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -p123456 --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  web3-grpc-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: web3lite-grpc
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      TZ: "Asia/Shanghai"
+      MYSQL_ADMIN_DSN: "root:123456@tcp(mysql:3306)/?parseTime=true"
+      MYSQL_DSN: "web3:123456@tcp(mysql:3306)/web3lite?parseTime=true"
+      RPC_URL: "${RPC_URL:-}"
+    ports:
+      - "50051:50051"
+    command: ["./web3-grpc-server", "-addr", ":50051", "-api-key", "web3-lite-key"]
+
+volumes:
+  mysql_data:
+

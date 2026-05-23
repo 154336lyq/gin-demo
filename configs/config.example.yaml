@@ -1,0 +1,46 @@
+# 复制为 configs/config.yaml 后修改；不要将含真实密钥的文件提交到仓库。
+#
+# --- 本地链（Anvil）常用值 ---
+#   http_rpc: "http://127.0.0.1:8545"
+#   ws_rpc:   "ws://127.0.0.1:8545"
+#   chain_id: 31337
+#
+server:
+  gin_mode: "debug" # release | debug
+  http_addr: ":8080"
+  grpc_addr: ":9090"
+  # 可选：对外根 URL（无尾斜杠），上传响应里 download_url 用其拼接；留空则按请求 Host 推断。
+  # public_base_url: "https://api.example.com"
+
+jwt:
+  secret: "please-change-me-use-long-random-string"
+  expire_hours: 72
+
+# 内存演示用户（生产环境请对接数据库与密码哈希）。
+users:
+  - username: "admin"
+    password: "admin123"
+  - username: "demo"
+    password: "demo123"
+
+eth:
+  # 与节点返回的 chain id 校验用；Anvil 默认 31337。
+  chain_id: 31337
+  http_rpc: "http://127.0.0.1:8545"
+  # 订阅新区块 / 日志需要 WebSocket；仅 HTTP 时程序会跳过订阅并打日志提示。
+  ws_rpc: "ws://127.0.0.1:8545"
+  # 可选：部署在本地的 ERC-20 合约地址，用于监听 Transfer。留空则只订阅区块头。
+  erc20_contract: ""
+  # 仅本地链（Anvil）：true 时允许 JWT 用户调用 POST /api/v1/tools/send-eth 用私钥转原生币。
+  # 切勿在主网或共享环境开启；不要在请求里对生产钱包使用此接口。
+  dev_send_enabled: false
+
+listener:
+  # 生产者->Channel->消费者 worker 数量（演示并发模型）。
+  worker_count: 3
+  channel_buffer: 32
+  # 订阅断线后重连等待下限（指数退避在此基础上翻倍，封顶 30s）。
+  reconnect_base_ms: 500
+
+files:
+  upload_dir: "./data/uploads"

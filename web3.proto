@@ -1,0 +1,152 @@
+syntax = "proto3";
+package web3; // 加上这个包声明
+option go_package = "./pb";
+
+enum TxState {
+  TX_STATE_UNSPECIFIED = 0;
+  TX_STATE_PENDING = 1;
+  TX_STATE_CONFIRMED = 2;
+  TX_STATE_FINALIZED = 3;
+  TX_STATE_FAILED = 4;
+}
+
+message EthTransaction {
+  string hash = 1;
+  string from = 2;
+  string to = 3;
+  string value = 4;
+  uint64 block_number = 5;
+  uint64 gas = 6;
+  uint64 nonce = 7;
+  bool success = 8;
+  uint64 chain_id = 9;
+  uint64 confirmations = 10;
+  TxState state = 11;
+  string updated_at = 12;
+}
+
+service EthTxService {
+  rpc GetTransaction(TxHashRequest) returns (EthTransaction);
+  rpc GetTransactionReceipt(TxHashRequest) returns (TxReceipt);
+  rpc SubscribeTransactions(SubscribeRequest) returns (stream EthTransaction);
+  rpc SubscribeLogs(SubscribeLogsRequest) returns (stream LogEvent);
+  rpc CreateAccount(CreateAccountRequest) returns (Account);
+  rpc GetAccount(GetAccountRequest) returns (Account);
+  rpc Transfer(TransferRequest) returns (TransferResponse);
+  rpc CreateUser(CreateUserRequest) returns (User);
+  rpc GetUser(GetUserRequest) returns (User);
+  rpc BindUserAccount(BindUserAccountRequest) returns (BindUserAccountResponse);
+  rpc ListUserAccounts(ListUserAccountsRequest) returns (ListUserAccountsResponse);
+}
+
+message TxHashRequest {
+  string hash = 1;
+  uint64 chain_id = 2;
+}
+
+message TxReceipt {
+  string hash = 1;
+  uint64 block_number = 2;
+  uint64 gas_used = 3;
+  bool success = 4;
+  TxState state = 5;
+  string logs_bloom = 6;
+}
+
+message SubscribeRequest {
+  uint64 chain_id = 1;
+  string address = 2;
+  bool include_failed = 3;
+  bool lightweight = 4;
+}
+
+message SubscribeLogsRequest {
+  uint64 chain_id = 1;
+  string contract_address = 2;
+  string topic0 = 3;
+  bool lightweight = 4;
+}
+
+message LogEvent {
+  string tx_hash = 1;
+  uint64 block_number = 2;
+  uint64 chain_id = 3;
+  string contract_address = 4;
+  repeated string topics = 5;
+  string data = 6;
+  uint64 log_index = 7;
+  string event_name = 8;
+  string updated_at = 9;
+}
+
+message Account {
+  string address = 1;
+  string balance = 2;
+  uint64 nonce = 3;
+  uint64 chain_id = 4;
+  string updated_at = 5;
+}
+
+message CreateAccountRequest {
+  string address = 1;
+  string initial_balance = 2;
+  uint64 chain_id = 3;
+}
+
+message GetAccountRequest {
+  string address = 1;
+  uint64 chain_id = 2;
+}
+
+message TransferRequest {
+  string from = 1;
+  string to = 2;
+  string value = 3;
+  uint64 chain_id = 4;
+}
+
+message TransferResponse {
+  EthTransaction tx = 1;
+  Account from_account = 2;
+  Account to_account = 3;
+}
+
+message User {
+  string user_id = 1;
+  string name = 2;
+  string email = 3;
+  uint64 chain_id = 4;
+  string created_at = 5;
+  string updated_at = 6;
+}
+
+message CreateUserRequest {
+  string name = 1;
+  string email = 2;
+  uint64 chain_id = 3;
+}
+
+message GetUserRequest {
+  string user_id = 1;
+}
+
+message BindUserAccountRequest {
+  string user_id = 1;
+  string address = 2;
+  uint64 chain_id = 3;
+}
+
+message BindUserAccountResponse {
+  User user = 1;
+  Account account = 2;
+}
+
+message ListUserAccountsRequest {
+  string user_id = 1;
+  uint64 chain_id = 2;
+}
+
+message ListUserAccountsResponse {
+  User user = 1;
+  repeated Account accounts = 2;
+}
