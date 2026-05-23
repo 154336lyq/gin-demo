@@ -41,14 +41,14 @@ func NewBackend(cfg *config.Config) (*Backend, error) {
 }
 
 // Close 释放连接。
-func (b *Backend) Close() {
+/*  func (b *Backend) Close() {
 	if b.http != nil {
 		b.http.Close()
 	}
 	if b.ws != nil {
 		b.ws.Close()
 	}
-}
+ } */
 
 // HTTP 返回用于 eth_call、块查询等的客户端。
 func (b *Backend) HTTP() *ethclient.Client { return b.http }
