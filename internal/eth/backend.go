@@ -4,6 +4,7 @@ package eth
 import (
 	"context"
 	"fmt"
+	"log"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -33,9 +34,10 @@ func NewBackend(cfg *config.Config) (*Backend, error) {
 	if cfg.Eth.WSRPC != "" {
 		wsc, err := ethclient.Dial(cfg.Eth.WSRPC)
 		if err != nil {
-			return nil, fmt.Errorf("dial ws rpc %s: %w", cfg.Eth.WSRPC, err)
+			log.Printf("[eth] ws rpc %s 连接失败（跳过订阅，HTTP 查询仍可用）: %v", cfg.Eth.WSRPC, err)
+		} else {
+			b.ws = wsc
 		}
-		b.ws = wsc
 	}
 	return b, nil
 }

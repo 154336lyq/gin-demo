@@ -16,6 +16,9 @@ type Config struct {
 	Eth      EthConfig      `mapstructure:"eth"`
 	Listener ListenerConfig `mapstructure:"listener"`
 	Files    FilesConfig    `mapstructure:"files"`
+	MySQL    MySQLConfig    `mapstructure:"mysql"`
+	Redis    RedisConfig    `mapstructure:"redis"`
+	Indexer  IndexerConfig  `mapstructure:"indexer"`
 }
 
 type ServerConfig struct {
@@ -53,6 +56,42 @@ type ListenerConfig struct {
 
 type FilesConfig struct {
 	UploadDir string `mapstructure:"upload_dir"`
+}
+
+// MySQLConfig 链下索引库；连接失败时 indexer 自动降级关闭，主服务仍可启动。
+type MySQLConfig struct {
+	Enabled  bool   `mapstructure:"enabled"`
+	AdminDSN string `mapstructure:"admin_dsn"`
+	DSN      string `mapstructure:"dsn"`
+	MaxOpen  int    `mapstructure:"max_open"`
+	MaxIdle  int    `mapstructure:"max_idle"`
+}
+
+// RedisConfig 缓存 / 去重 / 分布式锁；不可用时自动降级为进程内内存实现。
+type RedisConfig struct {
+	Enabled  bool   `mapstructure:"enabled"`
+	Addr     string `mapstructure:"addr"`
+	Password string `mapstructure:"password"`
+	DB       int    `mapstructure:"db"`
+}
+
+// IndexerConfig 控制链上→链下同步：回填、确认深度、并发与 outbox 重试。
+type IndexerConfig struct {
+	Enabled            bool             `mapstructure:"enabled"`
+	ConfirmDepth       int              `mapstructure:"confirm_depth"`
+	BatchSize          int              `mapstructure:"batch_size"`
+	OutboxWorkers      int              `mapstructure:"outbox_workers"`
+	MaxRetries         int              `mapstructure:"max_retries"`
+	GapScanIntervalSec int              `mapstructure:"gap_scan_interval_sec"`
+	HashVerifyWindow   int              `mapstructure:"hash_verify_window"`
+	WatchContracts     []WatchContract  `mapstructure:"watch_contracts"`
+}
+
+// WatchContract 声明要监听的合约地址、ABI 文件与事件名（生产 indexer 配置驱动）。
+type WatchContract struct {
+	Address string   `mapstructure:"address"`
+	ABI     string   `mapstructure:"abi"`
+	Events  []string `mapstructure:"events"`
 }
 
 // Load 从 path 读取配置文件（支持相对仓库根目录）。
@@ -99,6 +138,33 @@ func (c *Config) validate() error {
 	}
 	if c.Files.UploadDir == "" {
 		c.Files.UploadDir = "./data/uploads"
+	}
+	if c.MySQL.MaxOpen <= 0 {
+		c.MySQL.MaxOpen = 25
+	}
+	if c.MySQL.MaxIdle <= 0 {
+		c.MySQL.MaxIdle = 10
+	}
+	if c.Redis.Addr == "" {
+		c.Redis.Addr = "127.0.0.1:6379"
+	}
+	if c.Indexer.ConfirmDepth <= 0 {
+		c.Indexer.ConfirmDepth = 2
+	}
+	if c.Indexer.BatchSize <= 0 {
+		c.Indexer.BatchSize = 20
+	}
+	if c.Indexer.OutboxWorkers <= 0 {
+		c.Indexer.OutboxWorkers = 2
+	}
+	if c.Indexer.MaxRetries <= 0 {
+		c.Indexer.MaxRetries = 5
+	}
+	if c.Indexer.GapScanIntervalSec <= 0 {
+		c.Indexer.GapScanIntervalSec = 15
+	}
+	if c.Indexer.HashVerifyWindow <= 0 {
+		c.Indexer.HashVerifyWindow = 64
 	}
 	return nil
 }

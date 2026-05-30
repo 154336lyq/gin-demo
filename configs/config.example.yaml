@@ -44,3 +44,33 @@ listener:
 
 files:
   upload_dir: "./data/uploads"
+
+mysql:
+  # 链下索引库；连接失败时 indexer 自动关闭，HTTP/gRPC 仍可运行。
+  enabled: true
+  admin_dsn: "root:123456@tcp(127.0.0.1:3306)/?parseTime=true&multiStatements=true"
+  dsn: "root:123456@tcp(127.0.0.1:3306)/chain_indexer?parseTime=true&multiStatements=true"
+  max_open: 25
+  max_idle: 10
+
+redis:
+  # 未安装 Redis 时会自动降级为进程内内存缓存（代码演示）。
+  enabled: true
+  addr: "127.0.0.1:6379"
+  password: ""
+  db: 0
+
+indexer:
+  enabled: true
+  confirm_depth: 2      # 确认深度：落后链尖 N 块后标记 confirmed（reorg 安全）
+  batch_size: 20        # 回填每批最多块数
+  outbox_workers: 2     # Outbox→Redis 并发消费者
+  max_retries: 5
+  gap_scan_interval_sec: 15   # 漏块检测周期（秒）
+  hash_verify_window: 64      # 与链上 hash 对账的窗口大小
+  watch_contracts: []
+  # 示例：监听自定义合约
+  # watch_contracts:
+  #   - address: "0xYourContract"
+  #     abi: "abis/erc20.json"
+  #     events: ["Transfer", "Approval"]

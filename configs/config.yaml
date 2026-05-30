@@ -30,3 +30,27 @@ listener:
 
 files:
   upload_dir: "./data/uploads"
+
+mysql:
+  enabled: true
+  admin_dsn: "root:123456@tcp(127.0.0.1:3306)/?parseTime=true&multiStatements=true"
+  dsn: "root:123456@tcp(127.0.0.1:3306)/chain_indexer?parseTime=true&multiStatements=true"
+  max_open: 25
+  max_idle: 10
+
+redis:
+  enabled: true
+  addr: "127.0.0.1:6379"
+  password: ""
+  db: 0
+
+indexer:
+  enabled: true
+  confirm_depth: 2
+  batch_size: 20
+  outbox_workers: 2
+  max_retries: 5
+  gap_scan_interval_sec: 15
+  hash_verify_window: 64
+  # 通用事件监听；eth.erc20_contract 非空时会自动追加 Transfer/Approval
+  watch_contracts: []

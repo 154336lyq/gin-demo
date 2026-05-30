@@ -7,6 +7,7 @@ require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-sql-driver/mysql v1.10.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
+	github.com/redis/go-redis/v9 v9.19.0
 	github.com/spf13/viper v1.21.0
 	google.golang.org/grpc v1.80.0
 	google.golang.org/protobuf v1.36.11
@@ -68,6 +69,7 @@ require (
 	go.opentelemetry.io/otel v1.40.0 // indirect
 	go.opentelemetry.io/otel/metric v1.40.0 // indirect
 	go.opentelemetry.io/otel/trace v1.40.0 // indirect
+	go.uber.org/atomic v1.11.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/arch v0.26.0 // indirect
 	golang.org/x/crypto v0.50.0 // indirect

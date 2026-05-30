@@ -25,9 +25,11 @@ import (
 	"google.golang.org/grpc"
 
 	"gin-demo/internal/api"
+	"gin-demo/internal/cache"
 	"gin-demo/internal/config"
 	"gin-demo/internal/eth"
 	"gin-demo/internal/grpcsvc"
+	"gin-demo/internal/indexer"
 	"gin-demo/internal/pipeline"
 	"gin-demo/internal/store"
 	"gin-demo/pb/chainpb"
@@ -56,17 +58,39 @@ func main() {
 		log.Fatalf("Chain ID 校验失败（请确认 configs 中 chain_id 与节点一致，Anvil 默认 31337）: %v", err)
 	}
 
+	var idx *indexer.Engine
+	if cfg.Indexer.Enabled {
+		if cfg.MySQL.Enabled {
+			db, err := indexer.OpenMySQL(rootCtx, cfg)
+			if err != nil {
+				log.Printf("[indexer] MySQL 不可用，链下同步已关闭（主服务继续）: %v", err)
+			} else {
+				defer db.Close()
+				c := cache.New(cfg)
+				var err error
+				idx, err = indexer.NewEngine(cfg, backend, db, c)
+				if err != nil {
+					log.Printf("[indexer] 初始化失败（ABI/配置错误）: %v", err)
+				} else {
+					idx.Start(rootCtx)
+				}
+			}
+		} else {
+			log.Println("[indexer] mysql.enabled=false，跳过链下同步")
+		}
+	}
+
 	bus := pipeline.NewBus(pipeline.ListenerConfig{
 		WorkerCount:   cfg.Listener.WorkerCount,
 		ChannelBuffer: cfg.Listener.ChannelBuffer,
-	})
+	}, idx)
 	bus.Start(rootCtx)
 
 	listener := eth.NewListener(cfg, backend, bus)
 	go listener.Run(rootCtx)
 
 	users := store.NewUserStore(cfg.Users)
-	engine := api.NewRouter(cfg, backend, bus, users)
+	engine := api.NewRouter(cfg, backend, bus, users, idx)
 
 	httpSrv := &http.Server{
 		Addr:              cfg.Server.HTTPAddr,

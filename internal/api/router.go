@@ -6,12 +6,13 @@ import (
 
 	"gin-demo/internal/config"
 	"gin-demo/internal/eth"
+	"gin-demo/internal/indexer"
 	"gin-demo/internal/pipeline"
 	"gin-demo/internal/store"
 )
 
 // NewRouter 构造 HTTP 服务。
-func NewRouter(cfg *config.Config, b *eth.Backend, bus *pipeline.Bus, users *store.UserStore) *gin.Engine {
+func NewRouter(cfg *config.Config, b *eth.Backend, bus *pipeline.Bus, users *store.UserStore, idx *indexer.Engine) *gin.Engine {
 	if cfg.Server.GinMode == "release" {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -46,6 +47,15 @@ func NewRouter(cfg *config.Config, b *eth.Backend, bus *pipeline.Bus, users *sto
 	authz.GET("/contracts/counter/number", HandleCounterNumber(b))
 
 	authz.GET("/pipeline/stats", HandlePipelineStats(bus))
+
+	if idx != nil {
+		authz.GET("/indexer/status", HandleIndexerStatus(idx))
+		authz.GET("/indexer/blocks", HandleIndexerBlocks(idx))
+		authz.GET("/indexer/blocks/:number", HandleIndexerBlockByNumber(idx))
+		authz.GET("/indexer/transactions", HandleIndexerTransactions(idx))
+		authz.GET("/indexer/events", HandleIndexerEvents(idx))
+		authz.GET("/indexer/gap-scans", HandleIndexerGapScans(idx))
+	}
 
 	// 网络请求探测（可在此扩展为「爬取 + 解析」实战）。
 	authz.GET("/tools/http-probe", HandleHTTPProbe())

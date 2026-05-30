@@ -13,9 +13,16 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 )
 
+// ChainIndexer 可选的链下同步消费者（见 internal/indexer）。
+type ChainIndexer interface {
+	EnqueueHeader(ctx context.Context, h *types.Header)
+	EnqueueTransferLog(ctx context.Context, l *types.Log)
+}
+
 // Bus 作为「并发安全的数据汇聚」：对外暴露原子计数 + mutex 保护的可读快照。
 type Bus struct {
-	cfg ListenerConfig
+	cfg     ListenerConfig
+	indexer ChainIndexer
 
 	// jobs 承载区块头任务（消费者池）。
 	headerCh chan *types.Header
@@ -37,7 +44,7 @@ type ListenerConfig struct {
 	ChannelBuffer int
 }
 
-func NewBus(lc ListenerConfig) *Bus {
+func NewBus(lc ListenerConfig, idx ChainIndexer) *Bus {
 	if lc.WorkerCount <= 0 {
 		lc.WorkerCount = 2
 	}
@@ -46,6 +53,7 @@ func NewBus(lc ListenerConfig) *Bus {
 	}
 	return &Bus{
 		cfg:        lc,
+		indexer:    idx,
 		headerCh:   make(chan *types.Header, lc.ChannelBuffer),
 		transferCh: make(chan *types.Log, lc.ChannelBuffer),
 	}
@@ -99,20 +107,26 @@ func (b *Bus) appendLast(line string) {
 	b.lasts = append(b.lasts, line)
 }
 
-// SubmitHeader 非阻塞尽力投递；Channel 满时丢弃并记日志（实战可改阻塞或扩容）。
+// SubmitHeader 优先写入 indexer 待同步队列（防丢失），再投递 pipeline。
 func (b *Bus) SubmitHeader(h *types.Header) {
+	if b.indexer != nil {
+		b.indexer.EnqueueHeader(context.Background(), h)
+	}
 	select {
 	case b.headerCh <- h:
 	default:
-		log.Println("[pipeline] header channel 已满，丢弃一条（可调大 channel_buffer）。")
+		log.Println("[pipeline] header channel 已满，indexer 已持久化，统计 worker 跳过一条。")
 	}
 }
 
 func (b *Bus) SubmitTransferLog(l *types.Log) {
+	if b.indexer != nil {
+		b.indexer.EnqueueTransferLog(context.Background(), l)
+	}
 	select {
 	case b.transferCh <- l:
 	default:
-		log.Println("[pipeline] transfer channel 已满，丢弃一条。")
+		log.Println("[pipeline] transfer channel 已满，indexer 已处理或持久化。")
 	}
 }
 
