@@ -12,6 +12,8 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/gin-gonic/gin"
 
+	"gin-demo/internal/balance"
+	"gin-demo/internal/config"
 	"gin-demo/internal/eth"
 )
 
@@ -218,8 +220,8 @@ func HandleTransaction(b *eth.Backend) gin.HandlerFunc {
 	}
 }
 
-// HandleAccountInfo 查询账户概要：余额、nonce、是否为合约。
-func HandleAccountInfo(b *eth.Backend) gin.HandlerFunc {
+// HandleAccountInfo 查询账户概要：余额优先读 DB 快照，nonce/合约信息走 RPC。
+func HandleAccountInfo(cfg *config.Config, b *eth.Backend, balStore *balance.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		addr := strings.TrimSpace(c.Param("addr"))
 		if !common.IsHexAddress(addr) {
@@ -229,11 +231,27 @@ func HandleAccountInfo(b *eth.Backend) gin.HandlerFunc {
 		a := common.HexToAddress(addr)
 		ctx := c.Request.Context()
 
-		bal, err := b.BalanceAt(ctx, addr)
-		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
-			return
+		var balWei *big.Int
+		balanceSource := "rpc"
+		var balUpdatedAt interface{}
+		if balStore != nil && cfg.BalanceSync.Enabled {
+			if row, err := balStore.Get(ctx, addr, balance.NativeToken); err == nil {
+				if w, ok := new(big.Int).SetString(row.BalanceWei, 10); ok {
+					balWei = w
+					balanceSource = "database"
+					balUpdatedAt = row.UpdatedAt
+				}
+			}
 		}
+		if balWei == nil {
+			w, err := b.BalanceAt(ctx, addr)
+			if err != nil {
+				c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+				return
+			}
+			balWei = w
+		}
+
 		nonce, err := b.NonceAt(ctx, a)
 		if err != nil {
 			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
@@ -245,15 +263,20 @@ func HandleAccountInfo(b *eth.Backend) gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{
-			"address":      addr,
-			"balance_wei":  bal.String(),
-			"balance_eth":  weiToETHString(bal),
-			"nonce":        nonce,
-			"is_contract": len(code) > 0,
-			"code_size":    len(code),
-			"chain_id":     b.ChainID().String(),
-		})
+		out := gin.H{
+			"address":        addr,
+			"balance_wei":    balWei.String(),
+			"balance_eth":    weiToETHString(balWei),
+			"balance_source": balanceSource,
+			"nonce":          nonce,
+			"is_contract":    len(code) > 0,
+			"code_size":      len(code),
+			"chain_id":       b.ChainID().String(),
+		}
+		if balUpdatedAt != nil {
+			out["balance_updated_at"] = balUpdatedAt
+		}
+		c.JSON(http.StatusOK, out)
 	}
 }
 
@@ -345,21 +368,5 @@ func HandleAccountTransactions(b *eth.Backend) gin.HandlerFunc {
 			"returned":     len(txs),
 			"transactions": txs,
 		})
-	}
-}
-
-func HandleBalance(b *eth.Backend) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		addr := c.Param("addr")
-		if !common.IsHexAddress(addr) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid hex address"})
-			return
-		}
-		w, err := b.BalanceAt(c.Request.Context(), addr)
-		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"address": addr, "eth": weiToETHString(w)})
 	}
 }

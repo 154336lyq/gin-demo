@@ -18,7 +18,9 @@ type Config struct {
 	Files    FilesConfig    `mapstructure:"files"`
 	MySQL    MySQLConfig    `mapstructure:"mysql"`
 	Redis    RedisConfig    `mapstructure:"redis"`
-	Indexer  IndexerConfig  `mapstructure:"indexer"`
+	Indexer     IndexerConfig     `mapstructure:"indexer"`
+	TxTracker   TxTrackerConfig   `mapstructure:"tx_tracker"`
+	BalanceSync BalanceSyncConfig `mapstructure:"balance_sync"`
 }
 
 type ServerConfig struct {
@@ -94,6 +96,56 @@ type WatchContract struct {
 	Events  []string `mapstructure:"events"`
 }
 
+// TxTrackerConfig 控制广播后的 tx 状态轮询与确认深度（钱包/发交易路径）。
+type TxTrackerConfig struct {
+	Enabled             bool `mapstructure:"enabled"`
+	PollIntervalSec     int  `mapstructure:"poll_interval_sec"`
+	ConfirmDepth        int  `mapstructure:"confirm_depth"`
+	BatchSize           int  `mapstructure:"batch_size"`
+	MaxPendingHours     int  `mapstructure:"max_pending_hours"`
+	UseEIP1559          bool `mapstructure:"use_eip1559"`
+	SpeedUpGasBumpPercent int `mapstructure:"speed_up_gas_bump_percent"`
+	RequireIdempotencyKey   bool `mapstructure:"require_idempotency_key"`
+	ReconcileIntervalSec    int  `mapstructure:"reconcile_interval_sec"`
+	ReconcileGraceSec       int  `mapstructure:"reconcile_grace_sec"`
+	BroadcastMaxRetries     int  `mapstructure:"broadcast_max_retries"`
+	OutboxWorkers           int  `mapstructure:"outbox_workers"`
+}
+
+// BalanceSyncConfig 托管/交易所：链上余额快照同步到 account_balances。
+type BalanceSyncConfig struct {
+	Enabled              bool     `mapstructure:"enabled"`
+	CustodialOnly        bool     `mapstructure:"custodial_only"`
+	OnTxConfirmed        bool     `mapstructure:"on_tx_confirmed"`
+	OnIndexerTx          bool     `mapstructure:"on_indexer_tx"`
+	StaleSec             int      `mapstructure:"stale_sec"`
+	BackfillIntervalSec  int      `mapstructure:"backfill_interval_sec"`
+	WatchTokens          []string `mapstructure:"watch_tokens"`
+}
+
+// WatchTokenAddresses 返回需同步的 ERC-20 合约列表（含 eth.erc20_contract）。
+func (c *Config) WatchTokenAddresses() []string {
+	seen := make(map[string]struct{})
+	var out []string
+	add := func(addr string) {
+		addr = strings.TrimSpace(addr)
+		if addr == "" || !strings.HasPrefix(strings.ToLower(addr), "0x") {
+			return
+		}
+		key := strings.ToLower(addr)
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		out = append(out, addr)
+	}
+	for _, t := range c.BalanceSync.WatchTokens {
+		add(t)
+	}
+	add(c.Eth.ERC20Contract)
+	return out
+}
+
 // Load 从 path 读取配置文件（支持相对仓库根目录）。
 func Load(path string) (*Config, error) {
 	v := viper.New()
@@ -165,6 +217,48 @@ func (c *Config) validate() error {
 	}
 	if c.Indexer.HashVerifyWindow <= 0 {
 		c.Indexer.HashVerifyWindow = 64
+	}
+	if c.TxTracker.PollIntervalSec <= 0 {
+		c.TxTracker.PollIntervalSec = 3
+	}
+	if c.TxTracker.ConfirmDepth <= 0 {
+		c.TxTracker.ConfirmDepth = c.Indexer.ConfirmDepth
+		if c.TxTracker.ConfirmDepth <= 0 {
+			c.TxTracker.ConfirmDepth = 2
+		}
+	}
+	if c.TxTracker.BatchSize <= 0 {
+		c.TxTracker.BatchSize = 50
+	}
+	if c.TxTracker.MaxPendingHours <= 0 {
+		c.TxTracker.MaxPendingHours = 24
+	}
+	if c.TxTracker.SpeedUpGasBumpPercent <= 0 {
+		c.TxTracker.SpeedUpGasBumpPercent = 20
+	}
+	if c.TxTracker.OutboxWorkers <= 0 {
+		c.TxTracker.OutboxWorkers = 1
+	}
+	if c.TxTracker.ReconcileIntervalSec <= 0 {
+		c.TxTracker.ReconcileIntervalSec = 10
+	}
+	if c.TxTracker.ReconcileGraceSec <= 0 {
+		c.TxTracker.ReconcileGraceSec = 5
+	}
+	if c.TxTracker.BroadcastMaxRetries <= 0 {
+		c.TxTracker.BroadcastMaxRetries = 5
+	}
+	if c.BalanceSync.StaleSec <= 0 {
+		c.BalanceSync.StaleSec = 300
+	}
+	if c.BalanceSync.BackfillIntervalSec <= 0 {
+		c.BalanceSync.BackfillIntervalSec = 300
+	}
+	if c.BalanceSync.Enabled {
+		if !c.BalanceSync.OnTxConfirmed && !c.BalanceSync.OnIndexerTx {
+			c.BalanceSync.OnTxConfirmed = true
+			c.BalanceSync.OnIndexerTx = true
+		}
 	}
 	return nil
 }

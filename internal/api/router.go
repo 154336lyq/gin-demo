@@ -4,15 +4,17 @@ package api
 import (
 	"github.com/gin-gonic/gin"
 
+	"gin-demo/internal/balance"
 	"gin-demo/internal/config"
 	"gin-demo/internal/eth"
 	"gin-demo/internal/indexer"
 	"gin-demo/internal/pipeline"
 	"gin-demo/internal/store"
+	"gin-demo/internal/tx"
 )
 
 // NewRouter 构造 HTTP 服务。
-func NewRouter(cfg *config.Config, b *eth.Backend, bus *pipeline.Bus, users *store.UserStore, idx *indexer.Engine) *gin.Engine {
+func NewRouter(cfg *config.Config, b *eth.Backend, bus *pipeline.Bus, users *store.UserStore, idx *indexer.Engine, txTr *tx.Tracker, txSvc *tx.Service, balStore *balance.Store, balSync *balance.Syncer, balRegistry *balance.Registry) *gin.Engine {
 	if cfg.Server.GinMode == "release" {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -38,8 +40,16 @@ func NewRouter(cfg *config.Config, b *eth.Backend, bus *pipeline.Bus, users *sto
 
 	authz.GET("/accounts/:addr/transactions", HandleAccountTransactions(b))
 	authz.GET("/accounts/:addr/transaction", HandleAccountTransactions(b)) // 与 Apifox 误写单数兼容
-	authz.GET("/accounts/:addr/balance", HandleBalance(b))
-	authz.GET("/accounts/:addr", HandleAccountInfo(b))
+	authz.GET("/accounts/:addr/balance", HandleBalanceCached(cfg, b, balStore))
+	authz.GET("/accounts/:addr/balances", HandleBalancesList(balStore))
+	authz.POST("/accounts/:addr/balance/refresh", HandleBalanceRefresh(b, balSync))
+	authz.GET("/accounts/:addr", HandleAccountInfo(cfg, b, balStore))
+
+	authz.POST("/wallets", HandleWalletRegister(balStore, balSync, balRegistry))
+	authz.GET("/wallets", HandleWalletList(balStore))
+	authz.POST("/wallets/backfill", HandleWalletBackfill(balSync))
+	authz.GET("/wallets/:addr", HandleWalletGet(balStore))
+	authz.POST("/wallets/:addr/refresh", HandleWalletRefresh(balSync))
 
 	// Solidity / ABI：只读 eth_call（ERC-20、示例 Counter）
 	authz.GET("/contracts/erc20/balance", HandleERC20Balance(b))
@@ -59,7 +69,13 @@ func NewRouter(cfg *config.Config, b *eth.Backend, bus *pipeline.Bus, users *sto
 
 	// 网络请求探测（可在此扩展为「爬取 + 解析」实战）。
 	authz.GET("/tools/http-probe", HandleHTTPProbe())
-	authz.POST("/tools/send-eth", HandleDevSendETH(cfg, b))
+
+	authz.POST("/tx/submit", HandleTxSubmit(cfg, txSvc))
+	authz.POST("/tx/send", HandleTxSend(cfg, txSvc))
+	authz.POST("/tx/send-erc20", HandleTxSendERC20(cfg, txSvc))
+	authz.POST("/tx/:hash/speed-up", HandleTxSpeedUp(cfg, txSvc))
+	authz.GET("/tx/:hash", HandleTxGet(txTr))
+	authz.GET("/tx", HandleTxList(txTr))
 
 	authz.POST("/files/upload", HandleUpload(cfg))
 	authz.GET("/files/by-sha/:sha", HandleDownloadBySHA(cfg))

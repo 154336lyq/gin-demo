@@ -22,6 +22,8 @@ eth:
   http_rpc: "http://127.0.0.1:8545"
   ws_rpc: "ws://127.0.0.1:8545"
   erc20_contract: ""
+  # 仅本地 Anvil：开启后允许 POST /api/v1/tx/send 与 /tools/send-eth
+  dev_send_enabled: true
 
 listener:
   worker_count: 3
@@ -52,5 +54,28 @@ indexer:
   max_retries: 5
   gap_scan_interval_sec: 15
   hash_verify_window: 64
-  # 通用事件监听；eth.erc20_contract 非空时会自动追加 Transfer/Approval
+  # eth.erc20_contract 非空时会自动追加 Transfer/Approval
   watch_contracts: []
+
+tx_tracker:
+  enabled: true
+  poll_interval_sec: 3
+  confirm_depth: 2
+  batch_size: 50
+  max_pending_hours: 24
+  use_eip1559: true
+  speed_up_gas_bump_percent: 20
+  outbox_workers: 2
+  require_idempotency_key: false
+  reconcile_interval_sec: 10
+  reconcile_grace_sec: 5
+  broadcast_max_retries: 5
+
+balance_sync:
+  enabled: true
+  custodial_only: true
+  on_tx_confirmed: true
+  on_indexer_tx: true
+  stale_sec: 60
+  backfill_interval_sec: 300
+  watch_tokens: []

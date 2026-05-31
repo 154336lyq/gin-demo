@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc"
 
 	"gin-demo/internal/api"
+	"gin-demo/internal/balance"
 	"gin-demo/internal/cache"
 	"gin-demo/internal/config"
 	"gin-demo/internal/eth"
@@ -32,6 +33,7 @@ import (
 	"gin-demo/internal/indexer"
 	"gin-demo/internal/pipeline"
 	"gin-demo/internal/store"
+	"gin-demo/internal/tx"
 	"gin-demo/pb/chainpb"
 )
 
@@ -59,25 +61,61 @@ func main() {
 	}
 
 	var idx *indexer.Engine
-	if cfg.Indexer.Enabled {
-		if cfg.MySQL.Enabled {
-			db, err := indexer.OpenMySQL(rootCtx, cfg)
-			if err != nil {
-				log.Printf("[indexer] MySQL 不可用，链下同步已关闭（主服务继续）: %v", err)
-			} else {
-				defer db.Close()
+	var txTr *tx.Tracker
+	var txSvc *tx.Service
+	var balStore *balance.Store
+	var balSync *balance.Syncer
+	var balRegistry *balance.Registry
+	if cfg.MySQL.Enabled {
+		db, err := indexer.OpenMySQL(rootCtx, cfg)
+		if err != nil {
+			log.Printf("[mysql] 不可用（indexer/tx_tracker 关闭）: %v", err)
+		} else {
+			defer db.Close()
+			if cfg.BalanceSync.Enabled {
+				balStore, err = balance.NewStore(rootCtx, db, cfg.Eth.ChainID)
+				if err != nil {
+					log.Printf("[balance] 初始化失败: %v", err)
+				} else {
+					balRegistry = balance.NewRegistry(balStore)
+					if err := balRegistry.Reload(rootCtx); err != nil {
+						log.Printf("[balance] registry reload: %v", err)
+					}
+					balSync = balance.NewSyncer(cfg, backend, balStore, balRegistry)
+					go balance.StartBackfillWorker(rootCtx, cfg, balSync)
+					log.Println("[balance] 托管余额同步已启用 (custodial_wallets + account_balances)")
+				}
+			}
+			if cfg.Indexer.Enabled {
 				c := cache.New(cfg)
-				var err error
 				idx, err = indexer.NewEngine(cfg, backend, db, c)
 				if err != nil {
-					log.Printf("[indexer] 初始化失败（ABI/配置错误）: %v", err)
+					log.Printf("[indexer] 初始化失败: %v", err)
 				} else {
+					if balSync != nil {
+						idx.SetBalanceSyncer(balSync)
+					}
 					idx.Start(rootCtx)
 				}
 			}
-		} else {
-			log.Println("[indexer] mysql.enabled=false，跳过链下同步")
+			if cfg.TxTracker.Enabled {
+				store, err := tx.NewStore(rootCtx, db, cfg.Eth.ChainID)
+				if err != nil {
+					log.Printf("[tx/tracker] schema/init failed: %v", err)
+				} else {
+					txTr = tx.NewTracker(cfg, backend, store, balSync)
+					txTr.Start(rootCtx)
+					txSvc = tx.NewService(cfg, backend, store)
+					log.Println("[tx/tracker] 已启用 (submit-raw + db-nonce + outbox)")
+				}
+			}
 		}
+	} else {
+		log.Println("[mysql] mysql.enabled=false，跳过 indexer 与 tx_tracker")
+	}
+
+	if cfg.Indexer.Enabled && idx == nil {
+		log.Println("[indexer] 未启动（MySQL 不可用或初始化失败）")
 	}
 
 	bus := pipeline.NewBus(pipeline.ListenerConfig{
@@ -90,7 +128,7 @@ func main() {
 	go listener.Run(rootCtx)
 
 	users := store.NewUserStore(cfg.Users)
-	engine := api.NewRouter(cfg, backend, bus, users, idx)
+	engine := api.NewRouter(cfg, backend, bus, users, idx, txTr, txSvc, balStore, balSync, balRegistry)
 
 	httpSrv := &http.Server{
 		Addr:              cfg.Server.HTTPAddr,

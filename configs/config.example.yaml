@@ -74,3 +74,28 @@ indexer:
   #   - address: "0xYourContract"
   #     abi: "abis/erc20.json"
   #     events: ["Transfer", "Approval"]
+
+tx_tracker:
+  # 广播后的 tx 状态轮询（需 mysql.enabled=true）；落库表 tx_tracker。
+  enabled: true
+  poll_interval_sec: 3
+  confirm_depth: 2
+  batch_size: 50
+  max_pending_hours: 24
+  use_eip1559: true              # 托管发交易时使用 EIP-1559 DynamicFeeTx
+  speed_up_gas_bump_percent: 20  # RBF 加速时 gas 上浮比例
+  outbox_workers: 2              # 状态变更通知消费者（Webhook/Kafka 扩展位）
+  require_idempotency_key: true  # 生产建议 true：强制客户端带 Idempotency-Key
+  reconcile_interval_sec: 10     # 对 submitting/broadcast_failed 重试广播
+  reconcile_grace_sec: 5         # 新建 submitting 记录后等待秒数再 reconcile
+  broadcast_max_retries: 5
+
+balance_sync:
+  # 托管/交易所：仅同步 custodial_wallets 中注册的地址到 account_balances。
+  enabled: true
+  custodial_only: true
+  on_tx_confirmed: true   # 本系统发出交易确认后刷新
+  on_indexer_tx: true     # Indexer 扫块时刷新（捕获外部充值）
+  stale_sec: 60           # API auto 模式快照过期秒数
+  backfill_interval_sec: 300
+  watch_tokens: []        # 额外 ERC-20 合约；eth.erc20_contract 会自动加入

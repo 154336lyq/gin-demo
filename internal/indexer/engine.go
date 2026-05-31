@@ -15,6 +15,7 @@ import (
 
 	"gin-demo/internal/cache"
 	"gin-demo/internal/config"
+	"gin-demo/internal/balance"
 	"gin-demo/internal/eth"
 )
 
@@ -25,6 +26,7 @@ type Engine struct {
 	store  *Store
 	cache  cache.Cache
 	events *EventRegistry
+	balSync *balance.Syncer
 	jobs   chan uint64
 	reorgs atomic.Uint64
 
@@ -69,6 +71,11 @@ func (e *Engine) Start(ctx context.Context) {
 		workers, e.cfg.Indexer.ConfirmDepth, e.cfg.Indexer.GapScanIntervalSec, e.events.WatchCount(), e.cache.BackendName())
 }
 
+func (e *Engine) SetBalanceSyncer(s *balance.Syncer) {
+	e.balSync = s
+}
+
+// EnqueueHeader 将新区块头写入 WAL 并投递 worker。
 func (e *Engine) EnqueueHeader(ctx context.Context, h *types.Header) {
 	if h == nil {
 		return
@@ -220,6 +227,7 @@ func (e *Engine) syncBlock(ctx context.Context, blockNum uint64) error {
 	}
 
 	signer := types.LatestSignerForChainID(e.eth.ChainID())
+	var balParties []balance.TxParties
 	for i, tx := range blk.Transactions() {
 		from, err := types.Sender(signer, tx)
 		if err != nil {
@@ -250,6 +258,18 @@ func (e *Engine) syncBlock(ctx context.Context, blockNum uint64) error {
 		}
 		if err := e.store.UpsertTransactionTx(ctx, dbTx, txRow); err != nil {
 			return err
+		}
+		if e.cfg.BalanceSync.Enabled && e.cfg.BalanceSync.OnIndexerTx {
+			party := balance.TxParties{
+				TxHash:      tx.Hash().Hex(),
+				From:        strings.ToLower(from.Hex()),
+				TxType:      "native",
+				BlockNumber: blockNum,
+			}
+			if to := tx.To(); to != nil {
+				party.To = strings.ToLower(to.Hex())
+			}
+			balParties = append(balParties, party)
 		}
 	}
 
@@ -291,6 +311,11 @@ func (e *Engine) syncBlock(ctx context.Context, blockNum uint64) error {
 
 	if err := dbTx.Commit(); err != nil {
 		return err
+	}
+	if e.balSync != nil && len(balParties) > 0 {
+		for _, p := range balParties {
+			e.balSync.RefreshForTxAsync(p)
+		}
 	}
 	log.Printf("[indexer] 已同步 block #%d txs=%d", blockNum, len(blk.Transactions()))
 	return nil
@@ -354,6 +379,18 @@ func (e *Engine) persistParsedLog(ctx context.Context, dbTx *sql.Tx, lg types.Lo
 	}
 	if err := e.store.InsertOutboxTx(ctx, dbTx, "event_cached", outboxPayload); err != nil {
 		return err
+	}
+	if parsed.EventName == "Transfer" && e.balSync != nil && e.cfg.BalanceSync.Enabled && e.cfg.BalanceSync.OnIndexerTx {
+		from, _ := parsed.Args["from"].(string)
+		to, _ := parsed.Args["to"].(string)
+		e.balSync.RefreshForTxAsync(balance.TxParties{
+			TxHash:      lg.TxHash.Hex(),
+			From:        from,
+			To:          to,
+			TokenAddr:   parsed.ContractAddress,
+			TxType:      "erc20",
+			BlockNumber: lg.BlockNumber,
+		})
 	}
 	if ownTx {
 		return dbTx.Commit()
