@@ -20,6 +20,7 @@ type Tracker struct {
 	eth      *eth.Backend
 	store    *Store
 	balSync  *balance.Syncer
+	withdraw WithdrawHandler
 	wakeCh   chan struct{}
 }
 
@@ -31,6 +32,10 @@ func NewTracker(cfg *config.Config, b *eth.Backend, store *Store, balSync *balan
 		balSync: balSync,
 		wakeCh:  make(chan struct{}, 1),
 	}
+}
+
+func (t *Tracker) SetWithdrawHandler(h WithdrawHandler) {
+	t.withdraw = h
 }
 
 func (t *Tracker) Store() *Store { return t.store }
@@ -142,6 +147,9 @@ func (t *Tracker) trackOne(ctx context.Context, row Row, head uint64) {
 	if recErr != nil {
 		if t.shouldDrop(row) {
 			_ = t.store.TransitionStatus(ctx, row.TxHash, StatusDropped, 0, 0, 0, "not found in mempool or chain before timeout")
+			if t.withdraw != nil && row.BizType == BizTypeWithdraw {
+				_ = t.withdraw.OnWithdrawTxFailed(ctx, row.TxHash)
+			}
 		}
 		return
 	}
@@ -155,6 +163,9 @@ func (t *Tracker) trackOne(ctx context.Context, row Row, head uint64) {
 
 	if receipt.Status == types.ReceiptStatusFailed {
 		_ = t.store.TransitionStatus(ctx, row.TxHash, StatusFailed, blockNum, conf, gasUsed, "execution reverted")
+		if t.withdraw != nil && row.BizType == BizTypeWithdraw {
+			_ = t.withdraw.OnWithdrawTxFailed(ctx, row.TxHash)
+		}
 		return
 	}
 
@@ -177,6 +188,9 @@ func (t *Tracker) trackOne(ctx context.Context, row Row, head uint64) {
 			TxType:      row.TxType,
 			BlockNumber: blockNum,
 		})
+	}
+	if wasConfirmed && t.withdraw != nil && row.BizType == BizTypeWithdraw {
+		_ = t.withdraw.OnWithdrawTxConfirmed(ctx, row.TxHash)
 	}
 }
 

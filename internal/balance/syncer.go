@@ -5,6 +5,8 @@ import (
 	"log"
 	"strings"
 
+	"database/sql"
+
 	"github.com/ethereum/go-ethereum/common"
 
 	"gin-demo/internal/config"
@@ -73,15 +75,26 @@ func (s *Syncer) RefreshForTxAsync(p TxParties) {
 	}()
 }
 
-// RefreshWallet 刷新某托管地址的原生币 + 配置中的 watch_tokens。
+// RefreshWallet 刷新某托管地址的原生币 + 配置中的 watch_tokens（须已注册且 enabled）。
 func (s *Syncer) RefreshWallet(ctx context.Context, address string) error {
 	if s == nil || s.store == nil {
 		return nil
 	}
 	address = strings.TrimSpace(address)
 	if !common.IsHexAddress(address) {
-		return nil
+		return ErrWalletNotFound
 	}
+	w, err := s.store.GetWallet(ctx, address)
+	if err == sql.ErrNoRows {
+		return ErrWalletNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if !w.Enabled {
+		return ErrWalletDisabled
+	}
+	address = w.Address
 	if err := s.RefreshNative(ctx, address, "", 0); err != nil {
 		return err
 	}

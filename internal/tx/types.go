@@ -16,6 +16,8 @@ const (
 
 	TxFormatLegacy   = "legacy"
 	TxFormatEIP1559  = "eip1559"
+
+	BizTypeWithdraw = "withdraw"
 )
 
 // Row 对应 tx_tracker 表一行。

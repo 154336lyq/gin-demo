@@ -7,6 +7,7 @@ import (
 	"gin-demo/internal/balance"
 	"gin-demo/internal/config"
 	"gin-demo/internal/eth"
+	"gin-demo/internal/exchange"
 	"gin-demo/internal/indexer"
 	"gin-demo/internal/pipeline"
 	"gin-demo/internal/store"
@@ -14,7 +15,7 @@ import (
 )
 
 // NewRouter 构造 HTTP 服务。
-func NewRouter(cfg *config.Config, b *eth.Backend, bus *pipeline.Bus, users *store.UserStore, idx *indexer.Engine, txTr *tx.Tracker, txSvc *tx.Service, balStore *balance.Store, balSync *balance.Syncer, balRegistry *balance.Registry) *gin.Engine {
+func NewRouter(cfg *config.Config, b *eth.Backend, bus *pipeline.Bus, users *store.UserStore, idx *indexer.Engine, txTr *tx.Tracker, txSvc *tx.Service, balStore *balance.Store, balSync *balance.Syncer, balRegistry *balance.Registry, exchangeSvc *exchange.Service) *gin.Engine {
 	if cfg.Server.GinMode == "release" {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -49,7 +50,20 @@ func NewRouter(cfg *config.Config, b *eth.Backend, bus *pipeline.Bus, users *sto
 	authz.GET("/wallets", HandleWalletList(balStore))
 	authz.POST("/wallets/backfill", HandleWalletBackfill(balSync))
 	authz.GET("/wallets/:addr", HandleWalletGet(balStore))
-	authz.POST("/wallets/:addr/refresh", HandleWalletRefresh(balSync))
+	authz.PATCH("/wallets/:addr", HandleWalletSetEnabled(balStore, balRegistry))
+	authz.POST("/wallets/:addr/refresh", HandleWalletRefresh(balStore, balSync))
+
+	if exchangeSvc != nil {
+		authz.GET("/ledger/:user_id/balances", HandleLedgerBalances(exchangeSvc))
+		authz.GET("/ledger/:user_id/entries", HandleLedgerEntries(exchangeSvc))
+		authz.GET("/deposits", HandleDepositList(exchangeSvc))
+		authz.POST("/withdrawals", HandleWithdrawCreate(exchangeSvc))
+		authz.GET("/withdrawals", HandleWithdrawList(exchangeSvc))
+		authz.GET("/withdrawals/:id", HandleWithdrawGet(exchangeSvc))
+		authz.POST("/withdrawals/:id/approve", HandleWithdrawApprove(exchangeSvc))
+		authz.POST("/withdrawals/:id/reject", HandleWithdrawReject(exchangeSvc))
+		authz.GET("/reconcile", HandleReconcileReport(exchangeSvc))
+	}
 
 	// Solidity / ABI：只读 eth_call（ERC-20、示例 Counter）
 	authz.GET("/contracts/erc20/balance", HandleERC20Balance(b))

@@ -21,6 +21,7 @@ type Config struct {
 	Indexer     IndexerConfig     `mapstructure:"indexer"`
 	TxTracker   TxTrackerConfig   `mapstructure:"tx_tracker"`
 	BalanceSync BalanceSyncConfig `mapstructure:"balance_sync"`
+	Exchange    ExchangeConfig    `mapstructure:"exchange"`
 }
 
 type ServerConfig struct {
@@ -120,7 +121,25 @@ type BalanceSyncConfig struct {
 	OnIndexerTx          bool     `mapstructure:"on_indexer_tx"`
 	StaleSec             int      `mapstructure:"stale_sec"`
 	BackfillIntervalSec  int      `mapstructure:"backfill_interval_sec"`
+	RegistryReloadSec    int      `mapstructure:"registry_reload_sec"`
 	WatchTokens          []string `mapstructure:"watch_tokens"`
+}
+
+// ExchangeConfig 交易所业务层：链下账本、充值确认、提现审核、对账。
+type ExchangeConfig struct {
+	Enabled               bool         `mapstructure:"enabled"`
+	DepositEnabled        bool         `mapstructure:"deposit_enabled"`
+	ConfirmDepth          int          `mapstructure:"confirm_depth"`
+	AutoApproveWithdraw   bool         `mapstructure:"auto_approve_withdraw"`
+	HotWithdrawMaxWei     string       `mapstructure:"hot_withdraw_max_wei"`
+	ReconcileIntervalSec  int          `mapstructure:"reconcile_interval_sec"`
+	Signer                SignerConfig `mapstructure:"signer"`
+}
+
+// SignerConfig 签名后端：dev（本地私钥）或 kms/hsm/mpc（生产占位）。
+type SignerConfig struct {
+	Type          string `mapstructure:"type"`
+	DevPrivateKey string `mapstructure:"dev_private_key"`
 }
 
 // WatchTokenAddresses 返回需同步的 ERC-20 合约列表（含 eth.erc20_contract）。
@@ -254,10 +273,21 @@ func (c *Config) validate() error {
 	if c.BalanceSync.BackfillIntervalSec <= 0 {
 		c.BalanceSync.BackfillIntervalSec = 300
 	}
+	if c.BalanceSync.RegistryReloadSec <= 0 {
+		c.BalanceSync.RegistryReloadSec = 30
+	}
 	if c.BalanceSync.Enabled {
 		if !c.BalanceSync.OnTxConfirmed && !c.BalanceSync.OnIndexerTx {
 			c.BalanceSync.OnTxConfirmed = true
 			c.BalanceSync.OnIndexerTx = true
+		}
+	}
+	if c.Exchange.Enabled {
+		if c.Exchange.ReconcileIntervalSec <= 0 {
+			c.Exchange.ReconcileIntervalSec = 300
+		}
+		if !c.Exchange.DepositEnabled {
+			c.Exchange.DepositEnabled = true
 		}
 	}
 	return nil

@@ -79,3 +79,14 @@ balance_sync:
   stale_sec: 60
   backfill_interval_sec: 300
   watch_tokens: []
+
+exchange:
+  enabled: true
+  deposit_enabled: true
+  confirm_depth: 0
+  auto_approve_withdraw: false
+  hot_withdraw_max_wei: "1000000000000000000"
+  reconcile_interval_sec: 300
+  signer:
+    type: "dev"
+    dev_private_key: ""

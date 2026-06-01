@@ -29,9 +29,11 @@ import (
 	"gin-demo/internal/cache"
 	"gin-demo/internal/config"
 	"gin-demo/internal/eth"
+	"gin-demo/internal/exchange"
 	"gin-demo/internal/grpcsvc"
 	"gin-demo/internal/indexer"
 	"gin-demo/internal/pipeline"
+	"gin-demo/internal/signer"
 	"gin-demo/internal/store"
 	"gin-demo/internal/tx"
 	"gin-demo/pb/chainpb"
@@ -66,6 +68,9 @@ func main() {
 	var balStore *balance.Store
 	var balSync *balance.Syncer
 	var balRegistry *balance.Registry
+	var exchangeSvc *exchange.Service
+	var depositProc *exchange.DepositProcessor
+	var exStore *exchange.Store
 	if cfg.MySQL.Enabled {
 		db, err := indexer.OpenMySQL(rootCtx, cfg)
 		if err != nil {
@@ -86,6 +91,16 @@ func main() {
 					log.Println("[balance] 托管余额同步已启用 (custodial_wallets + account_balances)")
 				}
 			}
+			if cfg.Exchange.Enabled && balStore != nil {
+				exStore, err = exchange.NewStore(rootCtx, db, cfg.Eth.ChainID)
+				if err != nil {
+					log.Printf("[exchange] 初始化失败: %v", err)
+				} else {
+					depositProc = exchange.NewDepositProcessor(cfg, exStore, balRegistry)
+					log.Printf("[exchange] 业务层 schema 就绪 deposit=%v auto_approve=%v",
+						cfg.Exchange.DepositEnabled, cfg.Exchange.AutoApproveWithdraw)
+				}
+			}
 			if cfg.Indexer.Enabled {
 				c := cache.New(cfg)
 				idx, err = indexer.NewEngine(cfg, backend, db, c)
@@ -94,6 +109,9 @@ func main() {
 				} else {
 					if balSync != nil {
 						idx.SetBalanceSyncer(balSync)
+					}
+					if depositProc != nil {
+						idx.SetDepositProcessor(depositProc)
 					}
 					idx.Start(rootCtx)
 				}
@@ -106,6 +124,13 @@ func main() {
 					txTr = tx.NewTracker(cfg, backend, store, balSync)
 					txTr.Start(rootCtx)
 					txSvc = tx.NewService(cfg, backend, store)
+					if exStore != nil && balStore != nil {
+						sig := signer.New(cfg)
+						exchangeSvc = exchange.NewService(cfg, exStore, balStore, sig, txSvc)
+						txTr.SetWithdrawHandler(exchangeSvc)
+						exchange.StartWorkers(rootCtx, cfg, exchangeSvc)
+						log.Printf("[exchange] 已启用 signer=%s withdraw_worker=on", sig.BackendName())
+					}
 					log.Println("[tx/tracker] 已启用 (submit-raw + db-nonce + outbox)")
 				}
 			}
@@ -128,7 +153,7 @@ func main() {
 	go listener.Run(rootCtx)
 
 	users := store.NewUserStore(cfg.Users)
-	engine := api.NewRouter(cfg, backend, bus, users, idx, txTr, txSvc, balStore, balSync, balRegistry)
+	engine := api.NewRouter(cfg, backend, bus, users, idx, txTr, txSvc, balStore, balSync, balRegistry, exchangeSvc)
 
 	httpSrv := &http.Server{
 		Addr:              cfg.Server.HTTPAddr,

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/big"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -14,9 +15,10 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 
 	"gin-demo/internal/cache"
-	"gin-demo/internal/config"
 	"gin-demo/internal/balance"
+	"gin-demo/internal/config"
 	"gin-demo/internal/eth"
+	"gin-demo/internal/exchange"
 )
 
 // Engine 链上→MySQL 索引器：WAL、事务、reorg、Outbox、通用事件解析、漏块补扫。
@@ -27,6 +29,7 @@ type Engine struct {
 	cache  cache.Cache
 	events *EventRegistry
 	balSync *balance.Syncer
+	deposit *exchange.DepositProcessor
 	jobs   chan uint64
 	reorgs atomic.Uint64
 
@@ -73,6 +76,10 @@ func (e *Engine) Start(ctx context.Context) {
 
 func (e *Engine) SetBalanceSyncer(s *balance.Syncer) {
 	e.balSync = s
+}
+
+func (e *Engine) SetDepositProcessor(d *exchange.DepositProcessor) {
+	e.deposit = d
 }
 
 // EnqueueHeader 将新区块头写入 WAL 并投递 worker。
@@ -274,13 +281,43 @@ func (e *Engine) syncBlock(ctx context.Context, blockNum uint64) error {
 	}
 
 	head, _ := e.eth.BlockNumber(ctx)
+	confirmDepth := e.cfg.Indexer.ConfirmDepth
+	if e.deposit != nil {
+		confirmDepth = e.deposit.ConfirmDepth()
+	}
 	var confirmedUpTo uint64
 	if head > blockNum {
-		if head-blockNum >= uint64(e.cfg.Indexer.ConfirmDepth) {
+		if head-blockNum >= uint64(confirmDepth) {
 			confirmedUpTo = blockNum
 		}
 	} else {
 		confirmedUpTo = blockNum
+	}
+	willConfirm := confirmedUpTo == blockNum && e.deposit != nil && e.deposit.Enabled()
+	if willConfirm {
+		for _, tx := range blk.Transactions() {
+			from, err := types.Sender(signer, tx)
+			if err != nil {
+				continue
+			}
+			to := ""
+			if t := tx.To(); t != nil {
+				to = strings.ToLower(t.Hex())
+			}
+			rc, rcErr := e.eth.TransactionReceipt(ctx, tx.Hash().Hex())
+			success := rcErr == nil && rc != nil && rc.Status == 1
+		if err := e.deposit.CaptureNativeTx(ctx, dbTx, blockNum, tx.Hash().Hex(),
+				strings.ToLower(from.Hex()), to, tx.Value().String(), success); err != nil {
+				return err
+			}
+			if success && rc != nil {
+				for _, lg := range rc.Logs {
+					if err := e.captureDepositLog(ctx, dbTx, blockNum, *lg); err != nil {
+						return err
+					}
+				}
+			}
+		}
 	}
 	if confirmedUpTo > 0 {
 		if err := e.store.ConfirmBlocksUpToTx(ctx, dbTx, confirmedUpTo); err != nil {
@@ -398,6 +435,43 @@ func (e *Engine) persistParsedLog(ctx context.Context, dbTx *sql.Tx, lg types.Lo
 	return nil
 }
 
+func (e *Engine) captureDepositLog(ctx context.Context, dbTx *sql.Tx, blockNum uint64, lg types.Log) error {
+	if e.deposit == nil || !e.deposit.Enabled() || e.events == nil {
+		return nil
+	}
+	parsed, err := e.events.ParseLog(lg)
+	if err != nil || parsed == nil || parsed.EventName != "Transfer" {
+		return err
+	}
+	if !e.deposit.IsWatchToken(parsed.ContractAddress) {
+		return nil
+	}
+	from, _ := parsed.Args["from"].(string)
+	to, _ := parsed.Args["to"].(string)
+	amount := extractTransferAmount(parsed.Args["value"])
+	return e.deposit.CaptureERC20Transfer(ctx, dbTx, blockNum, lg.TxHash.Hex(), lg.Index,
+		parsed.ContractAddress, from, to, amount)
+}
+
+func extractTransferAmount(v any) string {
+	switch x := v.(type) {
+	case *big.Int:
+		if x == nil {
+			return "0"
+		}
+		return x.String()
+	case big.Int:
+		return x.String()
+	case string:
+		return x
+	default:
+		if x == nil {
+			return "0"
+		}
+		return fmt.Sprintf("%v", x)
+	}
+}
+
 func (e *Engine) detectAndHandleReorg(ctx context.Context, blk *types.Block) error {
 	if blk.NumberU64() == 0 {
 		return nil
@@ -428,6 +502,11 @@ func (e *Engine) detectAndHandleReorg(ctx context.Context, blk *types.Block) err
 	}
 	if err := e.store.RollbackCheckpointTx(ctx, tx, prevNum, blk.ParentHash().Hex()); err != nil {
 		return err
+	}
+	if e.deposit != nil && e.deposit.Enabled() {
+		if err := e.deposit.HandleReorgTx(ctx, tx, prevNum); err != nil {
+			return err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return err

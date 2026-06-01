@@ -13,6 +13,9 @@ func StartBackfillWorker(ctx context.Context, cfg *config.Config, syncer *Syncer
 	if syncer == nil || cfg == nil || !cfg.BalanceSync.Enabled {
 		return
 	}
+	if syncer.registry != nil {
+		go startRegistryReloadWorker(ctx, cfg, syncer.registry)
+	}
 	sec := cfg.BalanceSync.BackfillIntervalSec
 	if sec <= 0 {
 		return
@@ -40,6 +43,27 @@ func StartBackfillWorker(ctx context.Context, cfg *config.Config, syncer *Syncer
 			return
 		case <-ticker.C:
 			run()
+		}
+	}
+}
+
+// startRegistryReloadWorker 多实例部署时定期从 DB 同步 Registry，避免实例间缓存不一致。
+func startRegistryReloadWorker(ctx context.Context, cfg *config.Config, registry *Registry) {
+	sec := cfg.BalanceSync.RegistryReloadSec
+	if sec <= 0 {
+		sec = 30
+	}
+	ticker := time.NewTicker(time.Duration(sec) * time.Second)
+	defer ticker.Stop()
+	log.Printf("[balance/registry] reload worker started interval=%ds", sec)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := registry.Reload(ctx); err != nil {
+				log.Printf("[balance/registry] reload: %v", err)
+			}
 		}
 	}
 }

@@ -99,3 +99,15 @@ balance_sync:
   stale_sec: 60           # API auto 模式快照过期秒数
   backfill_interval_sec: 300
   watch_tokens: []        # 额外 ERC-20 合约；eth.erc20_contract 会自动加入
+
+exchange:
+  # 交易所业务层：链下账本 + 充值确认入账 + 提现审核 + 对账
+  enabled: true
+  deposit_enabled: true
+  confirm_depth: 0          # 0 = 沿用 indexer.confirm_depth
+  auto_approve_withdraw: false
+  hot_withdraw_max_wei: "1000000000000000000"  # 1 ETH 以下走热钱包
+  reconcile_interval_sec: 300
+  signer:
+    type: "dev"             # dev | kms | hsm | mpc
+    dev_private_key: ""     # 本地 Anvil 热钱包私钥（切勿提交仓库）
