@@ -67,6 +67,27 @@ func (s *Store) unfreezeWithdrawTx(ctx context.Context, tx *sql.Tx, userID, toke
 	})
 }
 
+// TransferInternalTx 平台内支付：付款方扣可用、收款方加可用（同一事务）。
+func (s *Store) TransferInternalTx(ctx context.Context, tx *sql.Tx, payerUserID, merchantUserID, token, amount string, paymentID int64) error {
+	amt, err := parseWei(amount)
+	if err != nil {
+		return err
+	}
+	neg := new(big.Int).Neg(amt)
+	if err := s.applyLedgerTx(ctx, tx, payerUserID, token, ledgerOp{
+		entryType: LedgerPaymentDebit, amount: amt,
+		refType: "payment", refID: paymentID,
+		deltaAvail: neg, deltaFrozen: weiZero(),
+	}); err != nil {
+		return err
+	}
+	return s.applyLedgerTx(ctx, tx, merchantUserID, token, ledgerOp{
+		entryType: LedgerPaymentCredit, amount: amt,
+		refType: "payment", refID: paymentID,
+		deltaAvail: amt, deltaFrozen: weiZero(),
+	})
+}
+
 func (s *Store) debitWithdrawTx(ctx context.Context, tx *sql.Tx, userID, token, amount string, withdrawID int64) error {
 	amt, err := parseWei(amount)
 	if err != nil {

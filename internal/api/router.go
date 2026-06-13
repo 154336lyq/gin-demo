@@ -12,10 +12,11 @@ import (
 	"gin-demo/internal/pipeline"
 	"gin-demo/internal/store"
 	"gin-demo/internal/tx"
+	"gin-demo/internal/webhook"
 )
 
 // NewRouter 构造 HTTP 服务。
-func NewRouter(cfg *config.Config, b *eth.Backend, bus *pipeline.Bus, users *store.UserStore, idx *indexer.Engine, txTr *tx.Tracker, txSvc *tx.Service, balStore *balance.Store, balSync *balance.Syncer, balRegistry *balance.Registry, exchangeSvc *exchange.Service) *gin.Engine {
+func NewRouter(cfg *config.Config, b *eth.Backend, bus *pipeline.Bus, users *store.UserStore, idx *indexer.Engine, txTr *tx.Tracker, txSvc *tx.Service, balStore *balance.Store, balSync *balance.Syncer, balRegistry *balance.Registry, exchangeSvc *exchange.Service, webhookSvc *webhook.Service) *gin.Engine {
 	if cfg.Server.GinMode == "release" {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -52,6 +53,20 @@ func NewRouter(cfg *config.Config, b *eth.Backend, bus *pipeline.Bus, users *sto
 	authz.GET("/wallets/:addr", HandleWalletGet(balStore))
 	authz.PATCH("/wallets/:addr", HandleWalletSetEnabled(balStore, balRegistry))
 	authz.POST("/wallets/:addr/refresh", HandleWalletRefresh(balStore, balSync))
+
+	// Mock 商户回调（压测接收端，无需 JWT）
+	v1.POST("/webhook/mock/receive", HandleWebhookMockReceive())
+
+	if webhookSvc != nil {
+		authz.GET("/webhook/status", HandleWebhookStatus(webhookSvc))
+		authz.POST("/webhook/merchants", HandleMerchantRegister(webhookSvc))
+		authz.GET("/webhook/merchants", HandleMerchantList(webhookSvc))
+		authz.POST("/webhook/merchants/:merchant_id/bindings", HandleMerchantBind(webhookSvc))
+		authz.POST("/webhook/payments", HandleMerchantPayment(webhookSvc))
+		authz.GET("/webhook/deliveries", HandleWebhookDeliveries(webhookSvc))
+		authz.POST("/webhook/outbox/:id/requeue", HandleWebhookRequeue(webhookSvc))
+		authz.POST("/webhook/bench/enqueue", HandleWebhookBenchEnqueue(webhookSvc))
+	}
 
 	if exchangeSvc != nil {
 		authz.GET("/ledger/:user_id/balances", HandleLedgerBalances(exchangeSvc))

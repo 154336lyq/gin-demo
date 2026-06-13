@@ -36,6 +36,7 @@ import (
 	"gin-demo/internal/signer"
 	"gin-demo/internal/store"
 	"gin-demo/internal/tx"
+	"gin-demo/internal/webhook"
 	"gin-demo/pb/chainpb"
 )
 
@@ -71,6 +72,7 @@ func main() {
 	var exchangeSvc *exchange.Service
 	var depositProc *exchange.DepositProcessor
 	var exStore *exchange.Store
+	var webhookSvc *webhook.Service
 	if cfg.MySQL.Enabled {
 		db, err := indexer.OpenMySQL(rootCtx, cfg)
 		if err != nil {
@@ -99,6 +101,20 @@ func main() {
 					depositProc = exchange.NewDepositProcessor(cfg, exStore, balRegistry)
 					log.Printf("[exchange] 业务层 schema 就绪 deposit=%v auto_approve=%v",
 						cfg.Exchange.DepositEnabled, cfg.Exchange.AutoApproveWithdraw)
+				}
+			}
+			if cfg.Webhook.Enabled && exStore != nil {
+				whStore, err := webhook.NewStore(rootCtx, db, cfg.Eth.ChainID)
+				if err != nil {
+					log.Printf("[webhook] 初始化失败: %v", err)
+				} else {
+					webhookSvc = webhook.NewService(cfg, whStore, exStore)
+					webhookSvc.Start(rootCtx)
+					if depositProc != nil {
+						depositProc.SetDepositNotifier(webhookSvc)
+					}
+					log.Printf("[webhook] 商户推送中心已启用 workers=%d batch=%d mock=%s",
+						cfg.Webhook.Workers, cfg.Webhook.BatchSize, cfg.Webhook.MockReceiveURL)
 				}
 			}
 			if cfg.Indexer.Enabled {
@@ -153,7 +169,7 @@ func main() {
 	go listener.Run(rootCtx)
 
 	users := store.NewUserStore(cfg.Users)
-	engine := api.NewRouter(cfg, backend, bus, users, idx, txTr, txSvc, balStore, balSync, balRegistry, exchangeSvc)
+	engine := api.NewRouter(cfg, backend, bus, users, idx, txTr, txSvc, balStore, balSync, balRegistry, exchangeSvc, webhookSvc)
 
 	httpSrv := &http.Server{
 		Addr:              cfg.Server.HTTPAddr,

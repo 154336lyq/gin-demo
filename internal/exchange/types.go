@@ -20,6 +20,8 @@ const (
 	LedgerWithdrawFreeze   = "withdraw_freeze"
 	LedgerWithdrawUnfreeze = "withdraw_unfreeze"
 	LedgerWithdrawDebit    = "withdraw_debit"
+	LedgerPaymentDebit     = "payment_debit"
+	LedgerPaymentCredit    = "payment_credit"
 )
 
 // AccountBalance 链下账本：可用 + 冻结。

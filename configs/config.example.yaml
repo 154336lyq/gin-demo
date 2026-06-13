@@ -100,6 +100,19 @@ balance_sync:
   backfill_interval_sec: 300
   watch_tokens: []        # 额外 ERC-20 合约；eth.erc20_contract 会自动加入
 
+webhook:
+  # 商户充值/支付 Webhook 推送中心（Transactional Outbox，压测目标 2000/s）
+  enabled: true
+  workers: 16              # 并发消费 Worker 数
+  batch_size: 100          # 每批 SKIP LOCKED 抢占条数
+  max_retries: 8           # 失败指数退避，超过标 failed
+  http_timeout_ms: 3000
+  max_conns_per_host: 300  # HTTP 连接池（支撑高吞吐）
+  dispatch_concurrency: 50 # 单 Worker 批内并发 POST 数
+  idle_poll_ms: 20         # 无任务时轮询间隔
+  # 压测/mock 商户默认回调到本机内置接收端（也可填真实商户 URL）
+  mock_receive_url: "http://127.0.0.1:8080/api/v1/webhook/mock/receive"
+
 exchange:
   # 交易所业务层：链下账本 + 充值确认入账 + 提现审核 + 对账
   enabled: true

@@ -80,6 +80,17 @@ balance_sync:
   backfill_interval_sec: 300
   watch_tokens: []
 
+webhook:
+  enabled: true
+  workers: 16
+  batch_size: 100
+  max_retries: 8
+  http_timeout_ms: 3000
+  max_conns_per_host: 300
+  dispatch_concurrency: 50
+  idle_poll_ms: 20
+  mock_receive_url: "http://127.0.0.1:8080/api/v1/webhook/mock/receive"
+
 exchange:
   enabled: true
   deposit_enabled: true

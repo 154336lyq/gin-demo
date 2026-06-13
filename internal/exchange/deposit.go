@@ -10,12 +10,18 @@ import (
 	"gin-demo/internal/config"
 )
 
+// DepositNotifier 充值入账后触发商户 Webhook Outbox（Transactional Outbox）。
+type DepositNotifier interface {
+	EnqueueDepositTx(ctx context.Context, dbTx *sql.Tx, dep Deposit) error
+}
+
 // DepositProcessor 在 Indexer 确认深度后捕获充值并入账。
 type DepositProcessor struct {
 	cfg      *config.Config
 	store    *Store
 	registry *balance.Registry
 	tokens   map[string]struct{}
+	webhook  DepositNotifier
 }
 
 func NewDepositProcessor(cfg *config.Config, store *Store, registry *balance.Registry) *DepositProcessor {
@@ -28,6 +34,10 @@ func NewDepositProcessor(cfg *config.Config, store *Store, registry *balance.Reg
 
 func (d *DepositProcessor) Enabled() bool {
 	return d != nil && d.cfg.Exchange.Enabled && d.cfg.Exchange.DepositEnabled
+}
+
+func (d *DepositProcessor) SetDepositNotifier(n DepositNotifier) {
+	d.webhook = n
 }
 
 func (d *DepositProcessor) ConfirmDepth() int {
@@ -132,7 +142,19 @@ func (d *DepositProcessor) captureAndCredit(ctx context.Context, dbTx *sql.Tx, p
 	if err := d.store.creditDepositTx(ctx, dbTx, p.UserID, p.TokenAddress, p.AmountWei, depID); err != nil {
 		return err
 	}
-	return d.store.MarkDepositCreditedTx(ctx, dbTx, depID)
+	if err := d.store.MarkDepositCreditedTx(ctx, dbTx, depID); err != nil {
+		return err
+	}
+	if d.webhook != nil {
+		dep, err := d.store.GetDepositByKeyTx(ctx, dbTx, p.TxHash, p.LogIndex)
+		if err != nil {
+			return err
+		}
+		if err := d.webhook.EnqueueDepositTx(ctx, dbTx, dep); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // HandleReorgTx 在 Indexer 同一 DB 事务内撤销 reorg 区块的充值入账。

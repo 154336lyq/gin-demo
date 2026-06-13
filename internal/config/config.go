@@ -22,6 +22,7 @@ type Config struct {
 	TxTracker   TxTrackerConfig   `mapstructure:"tx_tracker"`
 	BalanceSync BalanceSyncConfig `mapstructure:"balance_sync"`
 	Exchange    ExchangeConfig    `mapstructure:"exchange"`
+	Webhook     WebhookConfig     `mapstructure:"webhook"`
 }
 
 type ServerConfig struct {
@@ -123,6 +124,19 @@ type BalanceSyncConfig struct {
 	BackfillIntervalSec  int      `mapstructure:"backfill_interval_sec"`
 	RegistryReloadSec    int      `mapstructure:"registry_reload_sec"`
 	WatchTokens          []string `mapstructure:"watch_tokens"`
+}
+
+// WebhookConfig 商户充值/支付回调推送中心（Transactional Outbox + 高并发 Worker）。
+type WebhookConfig struct {
+	Enabled              bool   `mapstructure:"enabled"`
+	Workers              int    `mapstructure:"workers"`
+	BatchSize            int    `mapstructure:"batch_size"`
+	MaxRetries           int    `mapstructure:"max_retries"`
+	HTTPTimeoutMS        int    `mapstructure:"http_timeout_ms"`
+	MaxConnsPerHost      int    `mapstructure:"max_conns_per_host"`
+	DispatchConcurrency  int    `mapstructure:"dispatch_concurrency"`
+	IdlePollMS           int    `mapstructure:"idle_poll_ms"`
+	MockReceiveURL       string `mapstructure:"mock_receive_url"`
 }
 
 // ExchangeConfig 交易所业务层：链下账本、充值确认、提现审核、对账。
@@ -288,6 +302,29 @@ func (c *Config) validate() error {
 		}
 		if !c.Exchange.DepositEnabled {
 			c.Exchange.DepositEnabled = true
+		}
+	}
+	if c.Webhook.Enabled {
+		if c.Webhook.Workers <= 0 {
+			c.Webhook.Workers = 16
+		}
+		if c.Webhook.BatchSize <= 0 {
+			c.Webhook.BatchSize = 100
+		}
+		if c.Webhook.MaxRetries <= 0 {
+			c.Webhook.MaxRetries = 8
+		}
+		if c.Webhook.HTTPTimeoutMS <= 0 {
+			c.Webhook.HTTPTimeoutMS = 3000
+		}
+		if c.Webhook.MaxConnsPerHost <= 0 {
+			c.Webhook.MaxConnsPerHost = 300
+		}
+		if c.Webhook.DispatchConcurrency <= 0 {
+			c.Webhook.DispatchConcurrency = 50
+		}
+		if c.Webhook.IdlePollMS <= 0 {
+			c.Webhook.IdlePollMS = 20
 		}
 	}
 	return nil
